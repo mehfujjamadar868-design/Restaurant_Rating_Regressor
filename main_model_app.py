@@ -1,239 +1,138 @@
-import streamlit as st
+# ==============================================================================
+# UNIFIED RESTAURANT DATA SCIENCE PLATFORM (ALL TASKS CONSOLIDATED)
+# ==============================================================================
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 import folium
-from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.metrics import mean_squared_error, r2_score, accuracy_score
+from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, classification_report
 
-# Page layout configuration
-st.set_page_config(page_title="Restaurant Analytics Platform", layout="wide")
-st.title("🍽️ Integrated Restaurant Data Science Platform")
+# --- 0. INITIALIZATION & GLOBAL DATA CLEANING ---
+# Ensure your data frame 'df' is loaded. If you need to re-read it, uncomment below:
+# df = pd.read_csv('zomato.csv')
 
-# --- BASELINE SYSTEM DATA ENGINE ---
-@st.cache_data
-def generate_default_data():
-    np.random.seed(42)
-    n_samples = 1000
-    cities = ['New Delhi', 'Gurgaon', 'Noida', 'Mumbai', 'Bangalore', 'Kolkata', 'Chennai', 'Hyderabad']
-    cuisines_list = ['North Indian', 'North Indian, Mughlai', 'Chinese', 'Fast Food', 'South Indian', 'Italian, Pizza', 'Cafe', 'Continental']
-    binary_flags = ['Yes', 'No']
-    
-    test_data = {
-        'Restaurant ID': np.random.randint(1000000, 9000000, size=n_samples),
-        'Restaurant Name': [f"Gourmet Hub {i}" for i in range(n_samples)],
-        'City': np.random.choice(cities, size=n_samples, p=[0.35, 0.15, 0.15, 0.1, 0.1, 0.05, 0.05, 0.05]),
-        'Cuisines': np.random.choice(cuisines_list, size=n_samples),
-        'Average Cost for two': np.random.choice([200, 400, 600, 1200, 2500], size=n_samples, p=[0.3, 0.3, 0.2, 0.15, 0.05]),
-        'Has Table booking': np.random.choice(binary_flags, size=n_samples, p=[0.25, 0.75]),
-        'Has Online delivery': np.random.choice(binary_flags, size=n_samples, p=[0.45, 0.55]),
-        'Price range': np.random.choice([1, 2, 3, 4], size=n_samples, p=[0.35, 0.35, 0.2, 0.1]),
-        'Votes': np.random.randint(5, 4500, size=n_samples),
-        'Aggregate rating': np.round(np.random.uniform(1.0, 4.9, size=n_samples), 1),
-        'Latitude': np.random.uniform(28.40, 28.70, size=n_samples),
-        'Longitude': np.random.uniform(77.00, 77.30, size=n_samples)
-    }
-    return pd.DataFrame(test_data)
+print("⚡ Starting Unified Pipeline Execution...\n")
+df_clean = df.copy()
 
-# --- STREAMLIT SUITABLE FILE UPLOAD CENTER ---
-st.sidebar.header("📤 Document Upload Center")
-uploaded_file = st.sidebar.file_uploader(
-    label="Upload your Restaurant files here",
-    type=["csv", "pdf", "docx", "txt"],
-    help="Drag and drop your dataset CSV or documentation PDF/DOCX here!"
-)
+# ==============================================================================
+# TASK 1: RATING PREDICTION MODEL
+# ==============================================================================
+print("--- [TASK 1] Executing Rating Prediction ---")
+df_predict = df_clean.dropna(subset=['Aggregate rating']).copy()
+binary_map = {'Yes': 1, 'No': 0}
+df_predict['Has Table booking'] = df_predict['Has Table booking'].map(binary_map).fillna(0)
+df_predict['Has Online delivery'] = df_predict['Has Online delivery'].map(binary_map).fillna(0)
 
-# Manage the master data frame based on user upload stream
-df_clean = None
+features_reg = ['Average Cost for two', 'Has Table booking', 'Has Online delivery', 'Price range', 'Votes']
+X_reg = df_predict[features_reg].fillna(df_predict[features_reg].median())
+y_reg = df_predict['Aggregate rating']
 
-if uploaded_file is not None:
-    if uploaded_file.name.endswith('.csv'):
-        try:
-            df_clean = pd.read_csv(uploaded_file, encoding='latin-1')
-            st.sidebar.success(f"✅ Successfully parsed CSV dataset: {uploaded_file.name}")
-        except Exception as e:
-            st.sidebar.error(f"Error parsing CSV file, falling back to default data: {e}")
-            df_clean = generate_default_data()
-    else:
-        st.sidebar.info(f"📄 Document received: **{uploaded_file.name}** ({uploaded_file.type})")
-        st.sidebar.success("File uploaded to memory successfully!")
-        df_clean = generate_default_data()
-else:
-    st.sidebar.info("💡 Using built-in demo system dataset. Upload a custom CSV to override.")
-    df_clean = generate_default_data()
+X_train_r, X_test_r, y_train_r, y_test_r = train_test_split(X_reg, y_reg, test_size=0.2, random_state=42)
 
-# Clean up default missing columns if any
+rf_regressor = RandomForestRegressor(n_estimators=100, random_state=42)
+rf_regressor.fit(X_train_r, y_train_r)
+reg_preds = rf_regressor.predict(X_test_r)
+
+print(f"✅ Regression Complete! MSE: {mean_squared_error(y_test_r, reg_preds):.4f} | R2 Score: {r2_score(y_test_r, reg_preds):.4f}\n")
+
+
+# ==============================================================================
+# TASK 2: RECOMMENDATION SYSTEM ENGINES
+# ==============================================================================
+print("--- [TASK 2] Initializing Content-Based Recommendation Matrix ---")
 df_clean['Cuisines'] = df_clean['Cuisines'].fillna('Unknown')
 df_clean['City'] = df_clean['City'].fillna('Unknown')
 
-# --- PRE-COMPUTE SHARED ML COMPONENTS ---
-binary_map = {'Yes': 1, 'No': 0}
-df_predict = df_clean[df_clean['Aggregate rating'] > 0.0].copy()
-df_predict['Has Table booking'] = df_predict['Has Table booking'].map(binary_map).fillna(0)
-df_predict['Has Online delivery'] = df_predict['Has Online delivery'].map(binary_map).fillna(0)
-features_reg = ['Average Cost for two', 'Has Table booking', 'Has Online delivery', 'Price range', 'Votes']
+df_clean['Cuisines_Cleaned'] = df_clean['Cuisines'].apply(lambda x: " ".join([i.strip().lower().replace(" ", "") for i in x.split(',')]))
+df_clean['City_Cleaned'] = df_clean['City'].str.lower().str.replace(" ", "")
+df_clean['Price_Cleaned'] = "price_tier_" + df_clean['Price range'].astype(str)
+df_clean['Content_Profile'] = df_clean['Cuisines_Cleaned'] + " " + df_clean['City_Cleaned'] + " " + df_clean['Price_Cleaned']
 
-# --- SIDEBAR INTERFACE NAVIGATION ---
-st.sidebar.header("Navigation Control Center")
-app_mode = st.sidebar.radio("Select Analytics Task Component", [
-    "Overview & Spatial Maps", 
-    "Rating Prediction Regressor", 
-    "Content Recommendation Engine", 
-    "Cuisine Pattern Classifier"
-])
+tfidf = TfidfVectorizer(stop_words='english')
+tfidf_matrix = tfidf.fit_transform(df_clean['Content_Profile'])
 
-# ==============================================================================
-# MODE 1: GEOGRAPHICAL INTERACTIVE MAPS
-# ==============================================================================
-if app_mode == "Overview & Spatial Maps":
-    st.header("📍 Geographical Distribution & Hotspot Concentrations")
-    
-    city_stats = df_clean.groupby('City').agg(
-        Total_Restaurants=('Restaurant ID', 'count'),
-        Avg_Rating=('Aggregate rating', 'mean'),
-        Avg_Price_Tier=('Price range', 'mean')
-    ).sort_values(by='Total_Restaurants', ascending=False).reset_index()
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Top Concentration Hubs")
-        st.dataframe(city_stats.head(10), use_container_width=True)
-        
-    with col2:
-        st.subheader("Interactive Cluster Map Explorer")
-        geo_data = df_clean[(df_clean['Latitude'] != 0) & (df_clean['Longitude'] != 0) & (df_clean['Latitude'].notna())].copy()
-        
-        if not geo_data.empty:
-            map_center = [geo_data['Latitude'].median(), geo_data['Longitude'].median()]
-            restaurant_map = folium.Map(location=map_center, zoom_start=11, control_scale=True)
-            marker_cluster = MarkerCluster().add_to(restaurant_map)
+def recommend_restaurants(user_preferences, top_n=5):
+    user_cuisines = " ".join([i.strip().lower().replace(" ", "") for i in user_preferences.get('cuisine', '').split(',')])
+    user_city = user_preferences.get('city', '').lower().replace(" ", "")
+    user_price = f"price_tier_{user_preferences.get('price_range', '')}"
+    user_profile_str = f"{user_cuisines} {user_city} {user_price}"
 
-            for idx, row in geo_data.head(200).iterrows():
-                popup_text = f"<b>{row['Restaurant Name']}</b><br>Rating: {row['Aggregate rating']}<br>Cuisines: {row['Cuisines']}"
-                folium.Marker(
-                    location=[row['Latitude'], row['Longitude']],
-                    popup=folium.Popup(popup_text, max_width=300),
-                    icon=folium.Icon(color="red" if row['Aggregate rating'] >= 4.0 else "blue", icon="cutlery")
-                ).add_to(marker_cluster)
-                
-            st_folium(restaurant_map, width=700, height=450, returned_objects=[])
-        else:
-            st.info("No valid geographical layout coordinates available to draw map clusters.")
+    user_vector = tfidf.transform([user_profile_str])
+    similarity_scores = cosine_similarity(user_vector, tfidf_matrix).flatten()
+    top_indices = similarity_scores.argsort()[-top_n:][::-1]
+
+    recommendations = df_clean.iloc[top_indices].copy()
+    recommendations['Match Score'] = similarity_scores[top_indices]
+    return recommendations[['Restaurant Name', 'City', 'Cuisines', 'Price range', 'Aggregate rating', 'Match Score']]
+
+# Test execution
+sample_pref = {'cuisine': 'North Indian, Mughlai', 'city': 'New Delhi', 'price_range': 2}
+print("✅ Recommendation Matrix Generated! Test Recommendation Sample Output:")
+display(recommend_restaurants(sample_pref, top_n=3))
+print("\n")
+
 
 # ==============================================================================
-# MODE 2: RATING PREDICTION MODEL
+# TASK 3: CUISINE CLASSIFICATION MODEL
 # ==============================================================================
-elif app_mode == "Rating Prediction Regressor":
-    st.header("📊 Restaurant_Rating_Regressor Engine")
-    
-    if len(df_predict) > 10:
-        X_reg = df_predict[features_reg]
-        y_reg = df_predict['Aggregate rating']
-        X_train_r, X_test_r, y_train_r, y_test_r = train_test_split(X_reg, y_reg, test_size=0.2, random_state=42)
-        
-        rf_regressor = RandomForestRegressor(n_estimators=100, random_state=42)
-        rf_regressor.fit(X_train_r, y_train_r)
-        
-        st.subheader("Simulate a Custom Restaurant Entry Profile")
-        in_cost = st.number_input("Average Cost for Two", min_value=0, value=500, step=50)
-        in_booking = st.selectbox("Offers Table Booking?", ["No", "Yes"])
-        in_delivery = st.selectbox("Offers Online Delivery?", ["No", "Yes"])
-        in_price = st.slider("Price Range Tier Descriptor", 1, 4, 2)
-        in_votes = st.number_input("Accumulated Feedback Engagement Count (Votes)", min_value=0, value=150, step=10)
-        
-        if st.button("Calculate Predicted Performance Score"):
-            input_data = pd.DataFrame([[
-                in_cost, 
-                1 if in_booking == "Yes" else 0, 
-                1 if in_delivery == "Yes" else 0, 
-                in_price, 
-                in_votes
-            ]], columns=features_reg)
-            
-            prediction = rf_regressor.predict(input_data)
-            st.metric(label="Predicted Aggregate Rating out of 5.0", value=f"⭐ {prediction:.2f}")
-    else:
-        st.error("Not enough data lines to effectively train the Regression model pipelines.")
+print("--- [TASK 3] Executing Cuisine Classification ---")
+df_clean['Primary_Cuisine'] = df_clean['Cuisines'].apply(lambda x: x.split(',')[0].strip())
+top_cuisines = df_clean['Primary_Cuisine'].value_counts().nlargest(10).index
+df_cls = df_clean[df_clean['Primary_Cuisine'].isin(top_cuisines)].copy()
+
+target_encoder = LabelEncoder()
+y_cls = target_encoder.fit_transform(df_cls['Primary_Cuisine'])
+X_cls = df_cls[features_reg].fillna(df_cls[features_reg].median())
+
+X_train_c, X_test_c, y_train_c, y_test_c = train_test_split(X_cls, y_cls, test_size=0.2, random_state=42, stratify=y_cls)
+
+rf_classifier = RandomForestClassifier(n_estimators=100, max_depth=12, random_state=42, class_weight='balanced')
+rf_classifier.fit(X_train_c, y_train_c)
+cls_preds = rf_classifier.predict(X_test_c)
+
+print(f"✅ Classification Complete! Model Multi-Class Accuracy: {accuracy_score(y_test_c, cls_preds):.4f}\n")
+
 
 # ==============================================================================
-# MODE 3: RECOMMENDATION ENGINE
+# TASK 4: LOCATION ANALYSIS & INTERACTIVE MAPPING
 # ==============================================================================
-elif app_mode == "Content Recommendation Engine":
-    st.header("🎯 Content_Based_Restaurant_Recommender Matrix")
-    
-    df_clean['Cuisines_Cleaned'] = df_clean['Cuisines'].apply(lambda x: " ".join([i.strip().lower().replace(" ", "") for i in x.split(',')]))
-    df_clean['City_Cleaned'] = df_clean['City'].str.lower().str.replace(" ", "")
-    df_clean['Price_Cleaned'] = "price_tier_" + df_clean['Price range'].astype(str)
-    df_clean['Content_Profile'] = df_clean['Cuisines_Cleaned'] + " " + df_clean['City_Cleaned'] + " " + df_clean['Price_Cleaned']
+print("--- [TASK 4] Building Location Dashboards & Interactive Maps ---")
+# 1. Summary Aggregations
+city_stats = df_clean.groupby('City').agg(
+    Count=('Restaurant ID', 'count'),
+    Avg_Rating=('Aggregate rating', 'mean'),
+    Avg_Price=('Price range', 'mean')
+).sort_values(by='Count', ascending=False).reset_index()
 
-    tfidf = TfidfVectorizer(stop_words='english')
-    tfidf_matrix = tfidf.fit_transform(df_clean['Content_Profile'])
-    
-    unique_cities = sorted(df_clean['City'].unique())
-    selected_city = st.selectbox("Target Destination City", unique_cities)
-    selected_cuisine = st.text_input("Enter Preferred Cuisine Keywords (e.g. Italian, Fast Food)", "North Indian")
-    selected_price = st.slider("Target Maximum Pricing Bracket Tier", 1, 4, 2)
-    
-    if st.button("Generate Tailored Recommendation Matches"):
-        user_cuisines = " ".join([i.strip().lower().replace(" ", "") for i in selected_cuisine.split(',')])
-        user_city = selected_city.lower().replace(" ", "")
-        user_price = f"price_tier_{selected_price}"
-        user_profile_str = f"{user_cuisines} {user_city} {user_price}"
-        
-        user_vector = tfidf.transform([user_profile_str])
-        similarity_scores = cosine_similarity(user_vector, tfidf_matrix).flatten()
-        top_indices = similarity_scores.argsort()[-5:][::-1]
-        
-        recommendations = df_clean.iloc[top_indices].copy()
-        recommendations['Match Score'] = similarity_scores[top_indices]
-        
-st.dataframe(recommendations[['Restaurant Name', 'City', 'Cuisines', 'Price range', 'Aggregate rating', 'Match Score']], use_container_width=True)
+print("Top 5 Dense Restaurant Locations Found:")
+display(city_stats.head(5))
 
-# ==============================================================================
-# MODE 4: CUISINE CLASSIFICATION
-# ==============================================================================
+# 2. Interactive Map Generation using Folium
+geo_data = df_clean[(df_clean['Latitude'] != 0) & (df_clean['Longitude'] != 0) & (df_clean['Latitude'].notna())].copy()
 
-elif app_mode == "Cuisine Pattern Classifier":
-    st.header("🏷️ Primary_Cuisine_Classifier System")
-    df_clean['Primary_Cuisine'] = df_clean['Cuisines'].apply(lambda x: x.split(',')[0].strip())
-    top_cuisines = df_clean['Primary_Cuisine'].value_counts().nlargest(10).index
-    df_cls = df_clean[df_clean['Primary_Cuisine'].isin(top_cuisines)].copy()
-    
-    if len(df_cls) > 10:
-        target_encoder = LabelEncoder()
-        y_cls = target_encoder.fit_transform(df_cls['Primary_Cuisine'])
-        X_cls = df_cls[features_reg]
-        X_train_c, X_test_c, y_train_c, y_test_c = train_test_split(
-            X_cls, y_cls, test_size=0.2, random_state=42, stratify=y_cls
-        )
-        rf_classifier = RandomForestClassifier(
-            n_estimators=100, max_depth=12, random_state=42, class_weight='balanced'
-        )
-        rf_classifier.fit(X_train_c, y_train_c)
-        
-        st.subheader("Predict Cuisine Type Based on Operational Tiering")
-        c_cost = st.number_input("Average Cost Setup for Two", min_value=0, value=700, key="cls_cost")
-        c_booking = st.selectbox("Requires Table Booking reservation?", ["No", "Yes"], key="cls_book")
-        c_delivery = st.selectbox("Supports Online Home Delivery?", ["No", "Yes"], key="cls_del")
-        c_price = st.slider("Pricing Tier Index Code", 1, 4, 3, key="cls_price")
-        c_votes = st.number_input("Historical Engagement Interaction Volume (Votes)", min_value=0, value=400, key="cls_votes")
-        
-        if st.button("Execute Cuisine Class Inference Mapping"):
-            input_cls_data = pd.DataFrame([[
-                c_cost,
-                1 if c_booking == "Yes" else 0,
-                1 if c_delivery == "Yes" else 0,
-                c_price,
-                c_votes
-            ]], columns=features_reg)
-            
-            class_idx = rf_classifier.predict(input_cls_data)
-            predicted_cuisine = target_encoder.classes_[class_idx[0]]
-            st.success(f"🎉 The restaurant profile is classified as: {predicted_cuisine}")
-    else:
-        st.error("Not enough categorical cuisine variations to initialize prediction layouts.")
+# Focus map center on median coordinates of the dataset
+map_center = [geo_data['Latitude'].median(), geo_data['Longitude'].median()]
+restaurant_map = folium.Map(location=map_center, zoom_start=10, control_scale=True)
+marker_cluster = MarkerCluster().add_to(restaurant_map)
+
+# Sample map markers (limit to 500 to keep Colab notebook light and fast)
+for idx, row in geo_data.head(500).iterrows():
+    popup_text = f"<b>{row['Restaurant Name']}</b><br>Rating: {row['Aggregate rating']}<br>Cuisines: {row['Cuisines']}"
+    folium.Marker(
+        location=[row['Latitude'], row['Longitude']],
+        popup=folium.Popup(popup_text, max_width=300),
+        icon=folium.Icon(color="red" if row['Aggregate rating'] >= 4.0 else "blue", icon="cutlery")
+    ).add_to(marker_cluster)
+
+# Save the map locally
+restaurant_map.save("restaurant_interactive_map.html")
+print("✅ Location Analysis Finished! Interactive Map saved as 'restaurant_interactive_map.html'")
+
+print("\n🎉 ALL TASKS ARE COMPLETED SUCCESSFULLY!")
