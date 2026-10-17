@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
 import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
@@ -12,39 +11,49 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.metrics import mean_squared_error, r2_score, accuracy_score
 
-# Page configuration
+# Page layout configuration
 st.set_page_config(page_title="Restaurant Analytics Platform", layout="wide")
 st.title("🍽️ Integrated Restaurant Data Science Platform")
 
-# --- DATA SEED & LAZY CACHING ---
+# --- AUTO-GENERATION OF ROBUST IN-MEMORY SIMULATION DATASETS ---
 @st.cache_data
-@st.cache_data
-def load_and_clean_data():
-    backup_url = "https://githubusercontent.com"
+def generate_in_memory_data():
+    np.random.seed(42)
+    n_samples = 1500
     
-    # Check if local file exists AND actually has content inside it
-    if os.path.exists('zomato.csv') and os.path.getsize('zomato.csv') > 500:
-        try:
-            df = pd.read_csv('zomato.csv', encoding='latin-1')
-            st.sidebar.success("Loaded dataset locally from repository!")
-        except Exception:
-            df = pd.read_csv(backup_url, encoding='latin-1')
-            st.sidebar.info("Streaming dataset dynamically from cloud network backup...")
-    else:
-        # If the local file is empty or missing, stream it directly from the URL stream
-        df = pd.read_csv(backup_url, encoding='latin-1')
-        st.sidebar.info("Streaming dataset dynamically from cloud network backup...")
-        
-    df_clean = df.copy()
-    df_clean['Cuisines'] = df_clean['Cuisines'].fillna('Unknown')
-    df_clean['City'] = df_clean['City'].fillna('Unknown')
-    return df_clean
+    cities = ['New Delhi', 'Gurgaon', 'Noida', 'Mumbai', 'Bangalore', 'Kolkata', 'Chennai', 'Hyderabad']
+    cuisines_list = [
+        'North Indian', 'North Indian, Mughlai', 'Chinese', 'Fast Food', 
+        'South Indian', 'Italian, Pizza', 'Cafe', 'Continental', 'Bakery', 'Street Food'
+    ]
+    binary_flags = ['Yes', 'No']
+    
+    test_data = {
+        'Restaurant ID': np.random.randint(1000000, 9000000, size=n_samples),
+        'Restaurant Name': [f"Gourmet Hub {i}" for i in range(n_samples)],
+        'City': np.random.choice(cities, size=n_samples, p=[0.35, 0.15, 0.15, 0.1, 0.1, 0.05, 0.05, 0.05]),
+        'Cuisines': np.random.choice(cuisines_list, size=n_samples),
+        'Average Cost for two': np.random.choice([200, 400, 600, 1200, 2500], size=n_samples, p=[0.3, 0.3, 0.2, 0.15, 0.05]),
+        'Has Table booking': np.random.choice(binary_flags, size=n_samples, p=[0.25, 0.75]),
+        'Has Online delivery': np.random.choice(binary_flags, size=n_samples, p=[0.45, 0.55]),
+        'Price range': np.random.choice([1, 2, 3, 4], size=n_samples, p=[0.35, 0.35, 0.2, 0.1]),
+        'Votes': np.random.randint(5, 4500, size=n_samples),
+        'Aggregate rating': np.round(np.random.uniform(1.0, 4.9, size=n_samples), 1),
+        'Latitude': np.random.uniform(28.40, 28.70, size=n_samples),
+        'Longitude': np.random.uniform(77.00, 77.30, size=n_samples)
+    }
+    
+    df = pd.DataFrame(test_data)
+    # Align unrated restaurant edge-cases based on low interaction volume
+    df.loc[df['Votes'] < 30, 'Aggregate rating'] = 0.0
+    return df
 
-df_clean = load_and_clean_data()
+df_clean = generate_in_memory_data()
+st.sidebar.success("🎉 In-Memory Testing Engine Initialized!")
 
 # --- PRE-COMPUTE SHARED ML COMPONENTS ---
 binary_map = {'Yes': 1, 'No': 0}
-df_predict = df_clean.dropna(subset=['Aggregate rating']).copy()
+df_predict = df_clean[df_clean['Aggregate rating'] > 0.0].copy()
 df_predict['Has Table booking'] = df_predict['Has Table booking'].map(binary_map).fillna(0)
 df_predict['Has Online delivery'] = df_predict['Has Online delivery'].map(binary_map).fillna(0)
 features_reg = ['Average Cost for two', 'Has Table booking', 'Has Online delivery', 'Price range', 'Votes']
@@ -70,31 +79,28 @@ if app_mode == "Overview & Spatial Maps":
         Avg_Price_Tier=('Price range', 'mean')
     ).sort_values(by='Total_Restaurants', ascending=False).reset_index()
     
-    col1, col2 = st.columns([1, 2])
+    col1, col2 = st.columns()
     with col1:
         st.subheader("Top Concentration Hubs")
         st.dataframe(city_stats.head(10), use_container_width=True)
         
     with col2:
         st.subheader("Interactive Cluster Map Explorer")
-        geo_data = df_clean[(df_clean['Latitude'] != 0) & (df_clean['Longitude'] != 0) & (df_clean['Latitude'].notna())].copy()
+        geo_data = df_clean[(df_clean['Latitude'] != 0) & (df_clean['Longitude'] != 0)].copy()
         
-        if not geo_data.empty:
-            map_center = [geo_data['Latitude'].median(), geo_data['Longitude'].median()]
-            restaurant_map = folium.Map(location=map_center, zoom_start=10, control_scale=True)
-            marker_cluster = MarkerCluster().add_to(restaurant_map)
+        map_center = [geo_data['Latitude'].median(), geo_data['Longitude'].median()]
+        restaurant_map = folium.Map(location=map_center, zoom_start=11, control_scale=True)
+        marker_cluster = MarkerCluster().add_to(restaurant_map)
 
-            for idx, row in geo_data.head(300).iterrows():
-                popup_text = f"<b>{row['Restaurant Name']}</b><br>Rating: {row['Aggregate rating']}<br>Cuisines: {row['Cuisines']}"
-                folium.Marker(
-                    location=[row['Latitude'], row['Longitude']],
-                    popup=folium.Popup(popup_text, max_width=300),
-                    icon=folium.Icon(color="red" if row['Aggregate rating'] >= 4.0 else "blue", icon="cutlery")
-                ).add_to(marker_cluster)
-                
-            st_folium(restaurant_map, width=800, height=500, returned_objects=[])
-        else:
-            st.info("No valid geographical coordinates found to render the map dashboard.")
+        for idx, row in geo_data.head(200).iterrows():
+            popup_text = f"<b>{row['Restaurant Name']}</b><br>Rating: {row['Aggregate rating']}<br>Cuisines: {row['Cuisines']}"
+            folium.Marker(
+                location=[row['Latitude'], row['Longitude']],
+                popup=folium.Popup(popup_text, max_width=300),
+                icon=folium.Icon(color="red" if row['Aggregate rating'] >= 4.0 else "blue", icon="cutlery")
+            ).add_to(marker_cluster)
+            
+        st_folium(restaurant_map, width=700, height=450, returned_objects=[])
 
 # ==============================================================================
 # MODE 2: RATING PREDICTION MODEL
@@ -102,7 +108,7 @@ if app_mode == "Overview & Spatial Maps":
 elif app_mode == "Rating Prediction Regressor":
     st.header("📊 Restaurant_Rating_Regressor Engine")
     
-    X_reg = df_predict[features_reg].fillna(df_predict[features_reg].median())
+    X_reg = df_predict[features_reg]
     y_reg = df_predict['Aggregate rating']
     X_train_r, X_test_r, y_train_r, y_test_r = train_test_split(X_reg, y_reg, test_size=0.2, random_state=42)
     
@@ -125,8 +131,8 @@ elif app_mode == "Rating Prediction Regressor":
             in_votes
         ]], columns=features_reg)
         
-        prediction = rf_regressor.predict(input_data)[0]
-        st.metric(label="Predicted Aggregate Rating out of 5.0", value=f"⭐ {prediction:.2f}")
+        prediction = rf_regressor.predict(input_data)
+        st.metric(label="Predicted Aggregate Rating out of 5.0", value=f"⭐ {prediction[0]:.2f}")
 
 # ==============================================================================
 # MODE 3: RECOMMENDATION ENGINE
@@ -172,31 +178,16 @@ elif app_mode == "Cuisine Pattern Classifier":
     top_cuisines = df_clean['Primary_Cuisine'].value_counts().nlargest(10).index
     df_cls = df_clean[df_clean['Primary_Cuisine'].isin(top_cuisines)].copy()
     
-    if not df_cls.empty:
-        target_encoder = LabelEncoder()
-        y_cls = target_encoder.fit_transform(df_cls['Primary_Cuisine'])
-        X_cls = df_cls[features_reg].fillna(df_cls[features_reg].median())
-        
-        X_train_c, X_test_c, y_train_c, y_test_c = train_test_split(X_cls, y_cls, test_size=0.2, random_state=42, stratify=y_cls)
-        
-        rf_classifier = RandomForestClassifier(n_estimators=100, max_depth=12, random_state=42, class_weight='balanced')
-        rf_classifier.fit(X_train_c, y_train_c)
-        
-        st.subheader("Predict Cuisine Type Based on Operational Tiering")
-        c_cost = st.number_input("Average Cost Setup for Two", min_value=0, value=700, key="cls_cost")
-        c_booking = st.selectbox("Requires Table Booking reservation?", ["No", "Yes"], key="cls_book")
-        c_delivery = st.selectbox("Supports Online Home Delivery distributions?", ["No", "Yes"], key="cls_del")
-        c_price = st.slider("Pricing Tier Index Code", 1, 4, 3, key="cls_price")
-        c_votes = st.number_input("Historical Engagement Interaction Volume (Votes)", min_value=0, value=400, key="cls_votes")
-        
-        if st.button("Execute Cuisine Class Inference Mapping"):
-            input_cls_data = pd.DataFrame([[
-                c_cost,
-                1 if c_booking == "Yes" else 0,
-                1 if c_delivery == "Yes" else 0,
-                c_price,
-                c_votes
-            ]], columns=features_reg)
-            
-            class_idx = rf_classifier.predict(input_cls_data)[0]
-            predicted_cuisine = target_encoder.classes_[class_idx]
+    target_encoder = LabelEncoder()
+    y_cls = target_encoder.fit_transform(df_cls['Primary_Cuisine'])
+    X_cls = df_cls[features_reg]
+    
+    X_train_c, X_test_c, y_train_c, y_test_c = train_test_split(X_cls, y_cls, test_size=0.2, random_state=42, stratify=y_cls)
+    
+    rf_classifier = RandomForestClassifier(n_estimators=100, max_depth=12, random_state=42, class_weight='balanced')
+    rf_classifier.fit(X_train_c, y_train_c)
+    
+    st.subheader("Predict Cuisine Type Based on Operational Tiering")
+    c_cost = st.number_input("Average Cost Setup for Two", min_value=0, value=700, key="cls_cost")
+    c_booking = st.selectbox("Requires Table Booking reservation?", ["No", "Yes"], key="cls_book")
+    c_delivery = st.selectbox("Supports Online Home Delivery?", ["No", "Yes"], key="cls_del")
