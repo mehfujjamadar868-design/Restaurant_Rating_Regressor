@@ -1,8 +1,39 @@
 # Cell 1: Uploading and Preprocessing data
 import pandas as pd
 import numpy as np
-from google.colab import files
 from sklearn.model_selection import train_test_split
+import streamlit as st
+
+# 1. Create a clean file uploader widget in the Sidebar or Main Screen
+st.sidebar.subheader("📤 Document Upload Center")
+uploaded_file = st.sidebar.file_uploader(
+    label="Upload your restaurant data or project specifications",
+    type=["csv", "pdf", "docx", "txt"],  # Explicitly allow these target formats
+    help="Drag and drop CSV tables, PDF reports, or DOCX files here."
+)
+
+# 2. Logic to handle the file based on its specific file format extension
+if uploaded_file is not None:
+    file_details = {"FileName": uploaded_file.name, "FileType": uploaded_file.type}
+    st.sidebar.write(file_details)
+    
+    # Process if it is a standard CSV data matrix
+    if uploaded_file.name.endswith('.csv'):
+        try:
+            df_clean = pd.read_csv(uploaded_file, encoding='latin-1')
+            st.sidebar.success(f"Successfully parsed data table: {uploaded_file.name}")
+        except Exception as e:
+            st.sidebar.error(f"Error parsing CSV file: {e}")
+            
+    # Process if it is a text document asset (PDF / DOCX)
+    elif uploaded_file.name.endswith(('.pdf', '.docx')):
+        st.sidebar.info(f"📄 Document '{uploaded_file.name}' received successfully for text analysis.")
+        # Streamlit reads these as raw binary buffers. 
+        # You can pass 'uploaded_file' directly to document extractors like PyPDF2 or python-docx.
+        
+else:
+    st.sidebar.warning("No custom file uploaded yet. Using standard system data layer.")
+    # (Fallback to your in-memory generated dataset code here to keep app live)
 
 # 1. Proactively prompt to upload your restaurant dataset CSV file
 print("Please upload your restaurant dataset CSV file:")
