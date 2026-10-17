@@ -44,7 +44,6 @@ st.markdown(
 def load_and_clean_data(uploaded_file=None):
     df = None
 
-    # 1. Try reading user-uploaded file from the Streamlit sidebar first
     if uploaded_file is not None:
         try:
             uploaded_file.seek(0)
@@ -53,7 +52,6 @@ def load_and_clean_data(uploaded_file=None):
             st.sidebar.error("⚠️ The uploaded CSV file is empty (0 bytes). Please upload a valid CSV.")
             return None
 
-    # 2. Otherwise, scan the repository directory for any valid, non-empty CSV file
     if df is None:
         preferred_files = ["Dataset .csv", "Dataset.csv", "zomato.csv", "restaurants.csv"]
         repo_csvs = [f for f in os.listdir(".") if f.lower().endswith(".csv")]
@@ -75,7 +73,6 @@ def load_and_clean_data(uploaded_file=None):
     df_clean = df.copy()
     df_clean = df_clean.dropna(subset=["Aggregate rating"]).copy()
 
-    # Map binary columns safely
     binary_map = {"Yes": 1, "No": 0, 1: 1, 0: 0}
     for col in ["Has Table booking", "Has Online delivery"]:
         if col in df_clean.columns:
@@ -83,7 +80,6 @@ def load_and_clean_data(uploaded_file=None):
         else:
             df_clean[col] = 0
 
-    # Ensure core numeric predictors are clean
     num_cols = [
         "Average Cost for two", "Has Table booking", "Has Online delivery",
         "Price range", "Votes", "Aggregate rating"
@@ -93,7 +89,6 @@ def load_and_clean_data(uploaded_file=None):
             df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce")
             df_clean[col] = df_clean[col].fillna(df_clean[col].median())
 
-    # Clean text descriptors
     df_clean["Cuisines"] = df_clean["Cuisines"].fillna("Unknown").astype(str)
     df_clean["City"] = df_clean["City"].fillna("Unknown").astype(str)
     if "Restaurant Name" not in df_clean.columns:
@@ -103,7 +98,6 @@ def load_and_clean_data(uploaded_file=None):
 
     return df_clean
 
-# Sidebar Upload & Filters
 st.sidebar.header("📂 Dataset Configuration")
 uploaded_csv = st.sidebar.file_uploader("Upload Restaurant CSV (e.g., Dataset.csv)", type=["csv"])
 
@@ -324,4 +318,118 @@ with tab2:
 
         candidate_indices = similarity_scores.argsort()[-50:][::-1]
         recs = df_rec.iloc[candidate_indices].copy()
-        recs["Match Score"] = np.round(similarity_scores
+        
+        # Fixed single-line round statement:
+        recs["Match Score"] = np.round(similarity_scores[candidate_indices], 4)
+        
+        recs = recs.sort_values(
+            by=["Match Score", "Aggregate rating", "Votes"],
+            ascending=[False, False, False]
+        ).head(top_n_rec)
+
+        display_cols = [
+            "Restaurant Name", "City", "Cuisines", "Average Cost for two",
+            "Price range", "Aggregate rating", "Votes", "Match Score"
+        ]
+        st.dataframe(recs[display_cols], use_container_width=True, hide_index=True)
+
+# === TAB 3: CUISINE CLASSIFICATION ===
+with tab3:
+    st.subheader("🏷️ Task 3: Multi-Class Primary Cuisine Classification")
+    clf, target_encoder, city_encoder, cls_acc, report_df, cm, cls_features = train_cuisine_classifier(df_clean)
+
+    st.metric("Top-10 Primary Cuisine Multi-Class Accuracy", f"{cls_acc * 100:.2f}%")
+
+    c_cls1, c_cls2 = st.columns([1.1, 1])
+    with c_cls1:
+        st.markdown("#### Confusion Matrix (Top 10 Cuisines)")
+        fig_cm, ax_cm = plt.subplots(figsize=(8, 6))
+        sns.heatmap(
+            cm, annot=True, fmt="d", cmap="Blues",
+            xticklabels=target_encoder.classes_,
+            yticklabels=target_encoder.classes_,
+            ax=ax_cm
+        )
+        ax_cm.set_xlabel("Predicted Cuisine Class")
+        ax_cm.set_ylabel("Actual Cuisine Class")
+        plt.xticks(rotation=45, ha="right")
+        st.pyplot(fig_cm)
+
+    with c_cls2:
+        st.markdown("#### Per-Class Precision, Recall & F1-Score")
+        st.dataframe(report_df, use_container_width=True)
+
+        st.info(
+            """**Critical Bias & Variance Insights:**
+1. **Class Imbalance:** Dominant regional cuisines (e.g., North Indian) create strong baseline priors.
+2. **Multi-Cuisine Blending:** Many kitchens serve hybrid menus, creating boundary overlap.
+3. **Feature Overlap:** Fast Food, Cafe, and Bakery categories share nearly identical price tiers and vote distributions."""
+        )
+
+# === TAB 4: GEOSPATIAL INTELLIGENCE ===
+with tab4:
+    st.subheader("🗺️ Task 4: Location Analysis & Interactive Folium Map")
+
+    city_stats = df_clean.groupby("City").agg(
+        Restaurant_Count=("Restaurant ID", "count"),
+        Average_Rating=("Aggregate rating", "mean"),
+        Average_Price_Range=("Price range", "mean"),
+        Average_Cost_For_Two=("Average Cost for two", "mean"),
+        Unique_Cuisines=("Cuisines", lambda x: x.nunique())
+    ).reset_index().sort_values(by="Restaurant_Count", ascending=False)
+
+    g_col1, g_col2 = st.columns([1, 1])
+    with g_col1:
+        st.markdown("#### Top 10 Cities by Restaurant Concentration")
+        st.dataframe(city_stats.head(10).round(2), use_container_width=True, hide_index=True)
+
+    with g_col2:
+        st.markdown("#### Top 15 Cities Density Chart")
+        fig_city, ax_city = plt.subplots(figsize=(8, 4.2))
+        sns.barplot(
+            data=city_stats.head(15),
+            x="Restaurant_Count",
+            y="City",
+            palette="coolwarm",
+            ax=ax_city
+        )
+        ax_city.set_xlabel("Number of Restaurants")
+        ax_city.set_ylabel("City")
+        st.pyplot(fig_city)
+
+    st.markdown("---")
+    st.markdown("#### 🌍 Interactive Restaurant Cluster Map (Folium)")
+    if "Latitude" in df_clean.columns and "Longitude" in df_clean.columns:
+        geo_data = df_clean[
+            (df_clean["Latitude"] != 0) &
+            (df_clean["Longitude"] != 0) &
+            (df_clean["Latitude"].notna()) &
+            (df_clean["Longitude"].notna())
+        ].copy()
+
+        max_markers = st.slider("Maximum Map Markers to Render (for fast browser performance)", 100, 1500, 500, step=100)
+
+        map_center = [geo_data["Latitude"].median(), geo_data["Longitude"].median()]
+        restaurant_map = folium.Map(location=map_center, zoom_start=11, control_scale=True)
+        marker_cluster = MarkerCluster().add_to(restaurant_map)
+
+        for _, row in geo_data.head(max_markers).iterrows():
+            popup_html = (
+                f"<b>{row['Restaurant Name']}</b><br>"
+                f"City: {row['City']}<br>"
+                f"Rating: {row['Aggregate rating']} ⭐<br>"
+                f"Price Tier: {int(row['Price range'])}<br>"
+                f"Cuisines: {row['Cuisines']}"
+            )
+            folium.Marker(
+                location=[row["Latitude"], row["Longitude"]],
+                popup=folium.Popup(popup_html, max_width=300),
+                icon=folium.Icon(
+                    color="green" if row["Aggregate rating"] >= 4.0 else ("orange" if row["Aggregate rating"] >= 3.0 else "blue"),
+                    icon="cutlery"
+                )
+            ).add_to(marker_cluster)
+
+        components.html(restaurant_map._repr_html_(), height=550)
+    else:
+        st.warning("Latitude and Longitude columns were not found in the uploaded dataset.")
