@@ -107,6 +107,9 @@ pip install pandas numpy scikit-learn matplotlib seaborn folium
 2. Run **Cell 1** and upload your restaurant dataset CSV file when prompted by `files.upload()`.
 3. Execute the individual task modules sequentially, or run the **Unified Restaurant Data Science Platform** cell at the bottom of the notebook to execute all four pipelines and generate `restaurant_interactive_map.html` in a single pass.
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://restaurantratingregreappr-2p8ki2a7pan7rv4rimcjoy.streamlit.app/)
+
+> **🚀 Explore the Live Application:** [Click Here to View the Deployed Streamlit Dashboard](https://restaurantratingregreappr-2p8ki2a7pan7rv4rimcjoy.streamlit.app/)
 ---
 
 ## 🔮 Future Enhancements
