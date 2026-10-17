@@ -67,7 +67,10 @@ def load_and_clean_data(uploaded_file=None):
             df_clean[col] = 0
 
     # Ensure core numeric predictors are clean
-    num_cols = ["Average Cost for two", "Has Table booking", "Has Online delivery", "Price range", "Votes", "Aggregate rating"]
+    num_cols = [
+        "Average Cost for two", "Has Table booking", "Has Online delivery",
+        "Price range", "Votes", "Aggregate rating"
+    ]
     for col in num_cols:
         if col in df_clean.columns:
             df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce")
@@ -274,7 +277,6 @@ with tab2:
     st.subheader("🍲 Task 2: Content-Based Restaurant Recommendation Engine")
     tfidf, tfidf_matrix, df_rec = build_recommender_engine(df_clean)
 
-    # Extract distinct cuisines and cities for user-friendly selection
     all_cuisines = sorted(list({
         c.strip() for row in df_rec["Cuisines"].dropna() for c in str(row).split(",") if c.strip() and c.strip() != "Unknown"
     }))
@@ -311,7 +313,10 @@ with tab2:
             ascending=[False, False, False]
         ).head(top_n_rec)
 
-        display_cols = ["Restaurant Name", "City", "Cuisines", "Average Cost for two", "Price range", "Aggregate rating", "Votes", "Match Score"]
+        display_cols = [
+            "Restaurant Name", "City", "Cuisines", "Average Cost for two",
+            "Price range", "Aggregate rating", "Votes", "Match Score"
+        ]
         st.dataframe(recs[display_cols], use_container_width=True, hide_index=True)
 
 # === TAB 3: CUISINE CLASSIFICATION ===
@@ -341,13 +346,10 @@ with tab3:
         st.dataframe(report_df, use_container_width=True)
 
         st.info(
-            "**Critical Bias & Variance Insights:**
-"
-            "1. **Class Imbalance:** Dominant regional cuisines (e.g., North Indian) create strong baseline priors.
-"
-            "2. **Multi-Cuisine Blending:** Many kitchens serve hybrid menus, creating boundary overlap.
-"
-            "3. **Feature Overlap:** Fast Food, Cafe, and Bakery categories share nearly identical price tiers and vote distributions."
+            """**Critical Bias & Variance Insights:**
+1. **Class Imbalance:** Dominant regional cuisines (e.g., North Indian) create strong baseline priors.
+2. **Multi-Cuisine Blending:** Many kitchens serve hybrid menus, creating boundary overlap.
+3. **Feature Overlap:** Fast Food, Cafe, and Bakery categories share nearly identical price tiers and vote distributions."""
         )
 
 # === TAB 4: GEOSPATIAL INTELLIGENCE ===
