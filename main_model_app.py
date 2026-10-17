@@ -18,15 +18,22 @@ st.title("🍽️ Integrated Restaurant Data Science Platform")
 
 # --- DATA SEED & LAZY CACHING ---
 @st.cache_data
+@st.cache_data
 def load_and_clean_data():
-    # Looks for your file in the repository root directory
-    if os.path.exists('zomato.csv'):
-        df = pd.read_csv('zomato.csv')
-    elif os.path.exists('restaurant_test_dataset.csv'):
-        df = pd.read_csv('restaurant_test_dataset.csv')
+    backup_url = "https://githubusercontent.com"
+    
+    # Check if local file exists AND actually has content inside it
+    if os.path.exists('zomato.csv') and os.path.getsize('zomato.csv') > 500:
+        try:
+            df = pd.read_csv('zomato.csv', encoding='latin-1')
+            st.sidebar.success("Loaded dataset locally from repository!")
+        except Exception:
+            df = pd.read_csv(backup_url, encoding='latin-1')
+            st.sidebar.info("Streaming dataset dynamically from cloud network backup...")
     else:
-        st.error("⚠️ Dataset CSV file not found in the root repository folder. Please ensure your data file is uploaded.")
-        st.stop()
+        # If the local file is empty or missing, stream it directly from the URL stream
+        df = pd.read_csv(backup_url, encoding='latin-1')
+        st.sidebar.info("Streaming dataset dynamically from cloud network backup...")
         
     df_clean = df.copy()
     df_clean['Cuisines'] = df_clean['Cuisines'].fillna('Unknown')
